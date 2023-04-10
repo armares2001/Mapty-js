@@ -16,13 +16,18 @@ class App {
 
   constructor() {
     this.#workouts = [];
-    this.getPosition();
+    this.#map=L.map('map');
+    (async ()=>{
+      await this.getPosition();
 
-    form.addEventListener("submit", this.saveWorkout.bind(this));
+      form.addEventListener("submit", this.saveWorkout.bind(this));
 
-    inputType.addEventListener("change", function() {
-      this.toggleElevationField();
-    }.bind(this));
+      inputType.addEventListener("change",this.toggleElevationField);
+      containerWorkouts.addEventListener("click",this.moveToPopup.bind(this));
+
+      this.getLocaleStorage();
+    })();
+
   }
 
   getPosition() {
@@ -33,7 +38,8 @@ class App {
     const { latitude, longitude } = position.coords;
     console.log(`https://www.google.it/maps/@${latitude},${longitude}`);
     const coords = [latitude, longitude];
-    this.#map = L.map('map').setView(coords, 17);
+    this.#map = this.#map.setView(coords, 17);
+    console.log();
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -43,9 +49,23 @@ class App {
       .bindPopup('A pretty CSS3 popup.<br> Easily customizable.')
       .openPopup();
     console.log(this.#me);
-    this.newWorkout(coords, true);
 
     this.#map.on("click", this.showForm.bind(this));
+  }
+
+  moveToPopup(e){
+    const woEl=e.target.closest(".workout");
+    if (!woEl) return;
+
+    const wo=this.#workouts.find(woObj=>woObj.id===woEl.dataset.id);
+    console.log(wo);
+    this.#map.setView(wo.coords, 17,{
+      animate:true,
+      pan:{
+        duration:1
+      }
+    });
+    wo.click();
   }
 
   showForm(mEv) {
@@ -79,9 +99,42 @@ class App {
     inputDistance.value = inputDuration.value = inputCadence.value = inputElevation.value = "";
 
     this.hiddenForm();
+
+    this.setLocaleStorage();
+    console.log(JSON.parse(localStorage.getItem("workouts")));
+    console.log(this.#workouts);
+  }
+
+  setLocaleStorage(){
+    console.log(this.workouts);
+    localStorage.setItem("workouts",JSON.stringify(this.workouts));
+  }
+
+  getLocaleStorage(){
+    const workouts=JSON.parse(localStorage.getItem("workouts"));
+    if (!workouts) return;
+    const wosClasses=[];
+    workouts.forEach(wo=>{
+      let woClass;
+      if (wo.type==="Running"){
+        woClass=new Running();
+      }
+      if (wo.type==="Cycling"){
+        woClass=new Cycling();
+      }
+      Object.assign(woClass, wo);
+      console.log("WoClass",woClass);
+      wosClasses.push(woClass);
+    })
+    this.#workouts=wosClasses;
+    this.#workouts.forEach(wo=>{
+        this.renderWorkoutMarker(wo);
+        this.renderWorkout(wo);
+    });
   }
 
   renderWorkoutMarker(wo) {
+    console.log(this.#map);
     L.marker(wo.coords).addTo(this.#map)
       .bindPopup(L.popup({
         maxWidth: 250,
@@ -109,12 +162,12 @@ class App {
             <span class='workout__unit'>min</span>
           </div>
     `;
-
-    if (typeof wo === "Running") {
+    console.log(typeof wo);
+    if ( wo.type === "Running") {
       html += `
         <div class='workout__details'>
             <span class='workout__icon'>⚡️</span>
-            <span class='workout__value'>${wo.calcPace()}</span>
+            <span class='workout__value'>${wo.pace}</span>
             <span class='workout__unit'>min/km</span>
         </div>
         <div class='workout__details'>
@@ -126,11 +179,11 @@ class App {
     `
     }
 
-    if (typeof wo === "Cycling") {
+    if (wo.type === "Cycling") {
       html += `
            <div class='workout__details'>
               <span class='workout__icon'>⚡️</span>
-              <span class='workout__value'>${wo.calcSpeed().toFixed(1)}</span>
+              <span class='workout__value'>${wo.speed.toFixed(1)}</span>
               <span class='workout__unit'>km/h</span>
            </div>
            <div class='workout__details'>
@@ -164,6 +217,7 @@ class App {
           workout = new Cycling(+inputDistance.value, +inputDuration.value, newCoords, "test", +inputElevation.value);
           break
         default:
+          console.log("ciao");
           workout = new Workout(+inputDistance.value, +inputDuration.value, newCoords);
           break;
       }
@@ -175,96 +229,69 @@ class App {
     get workouts(){
       return this.#workouts.slice();
     }
+    
+    reset(){
+      localStorage.removeItem("workouts");
+      location.reload();
+    }
 }
 
 class Workout {
-  #id;
-  #distance;
-  #duration;
-  #coords;
-  #date;
-  #type;
 
   constructor(distance,duration,coords) {
-    this.#id=(new Date()+"").slice(0);
-    this.#distance=distance;
-    this.#duration=duration;
-    this.#coords=coords;
-    this.#date=new Date();
-    this.#type="workout";
+    this.id=(new Date()+"").slice(0);
+    this.distance=distance;
+    this.duration=duration;
+    this.coords=coords;
+    this.date=new Date();
+    this.type="workout";
+    this.clicks=0;
+    this.description=this.getDescription();
   }
 
-  get id(){
-    return this.#id;
+  click(){
+    this.clicks++;
   }
-  get coords(){
-    return this.#coords.slice();
-  }
-  get duration(){
-    return this.#duration;
-  }
-
-  get distance(){
-    return this.#distance;
-  }
-
-  set type(type){
-    this.#type=type;
-  }
-
-  get type(){
-    return this.#type;
-  }
-  get description(){
+  getDescription(){
     // prettier-ignore
     const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const description=`${this.#type} on ${months[this.#date.getMonth()]} ${this.#date.getDate()}`;
+    const description=`${this.type} on ${months[this.date.getMonth()]} ${this.date.getDate()}`;
     return description;
   }
 }
 
 class Running extends Workout{
-  #name;
-  #cadence;
-  #pace;
+
   constructor(distance,duration,coords,name,cadence) {
     super(distance,duration,coords);
     super.type="Running"
-    this.#name=name;
-    this.#cadence=cadence;
+    this.name=name;
+    this.cadence=cadence;
+    super.description=super.getDescription();
     this.calcPace();
   }
 
   calcPace(){
-    this.#pace=this.duration/this.distance;
-    return this.#pace;
-  }
-
-  get cadence(){
-    return this.#cadence;
+    this.pace=this.duration/this.distance;
+    return this.pace;
   }
 
 }
 
 class Cycling extends Workout{
-  #name;
-  #elevationGain;
-  #speed;
+
   constructor(distance,duration,coords,name,elevationGain) {
     super(distance,duration,coords);
     super.type="Cycling";
-    this.#name=name;
-    this.#elevationGain=elevationGain;
+    this.name=name;
+    this.elevationGain=elevationGain;
+    super.description=super.getDescription();
     this.calcSpeed();
   }
 
-  get elevationGain(){
-    return this.#elevationGain;
-  }
-
   calcSpeed(){
-    this.#speed=this.distance/(this.duration/60);
-    return this.#speed;
+    this.speed=this.distance/(this.duration/60);
+    return this.speed;
   }
 }
 
