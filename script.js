@@ -229,7 +229,7 @@ class App {
     get workouts(){
       return this.#workouts.slice();
     }
-    
+
     reset(){
       localStorage.removeItem("workouts");
       location.reload();
